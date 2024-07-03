@@ -10,7 +10,6 @@ import {startReactNativeNavigation} from './src/WixApp';
 import {name as appName} from './app.json';
 import {navigation as navigationLib} from './app.json';
 import {initializeDatadog} from './src/ddUtils';
-import {TrackingConsent} from '@datadog/mobile-react-native';
 import {Navigation} from 'react-native-navigation';
 
 console.log('Starting Application with navigation library: ' + navigationLib);

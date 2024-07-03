@@ -7,6 +7,7 @@
 package com.datadog.reactnative
 
 import android.content.pm.PackageInfo
+import android.os.Looper
 import android.util.Log
 import android.view.Choreographer
 import com.datadog.android.DatadogSite
@@ -36,6 +37,7 @@ import com.datadog.tools.unit.toReadableMap
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.modules.core.ChoreographerCompat
 import fr.xgouchet.elmyr.Forge
 import fr.xgouchet.elmyr.annotation.AdvancedForgery
 import fr.xgouchet.elmyr.annotation.BoolForgery
@@ -47,8 +49,10 @@ import fr.xgouchet.elmyr.annotation.StringForgery
 import fr.xgouchet.elmyr.annotation.StringForgeryType
 import fr.xgouchet.elmyr.junit5.ForgeConfiguration
 import fr.xgouchet.elmyr.junit5.ForgeExtension
-import java.util.Locale
-import java.util.stream.Stream
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkAll
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -77,6 +81,15 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.verifyNoInteractions
 import org.mockito.kotlin.whenever
 import org.mockito.quality.Strictness
+import java.util.Locale
+import java.util.stream.Stream
+
+fun mockChoreographerCompatInstance(mock: ChoreographerCompat = mock()) {
+    ChoreographerCompat::class.java.setStaticValue(
+        "sInstance",
+        mock
+    )
+}
 
 fun mockChoreographerInstance(mock: Choreographer = mock()) {
     Choreographer::class.java.setStaticValue(
@@ -96,7 +109,6 @@ fun mockChoreographerInstance(mock: Choreographer = mock()) {
 @MockitoSettings(strictness = Strictness.LENIENT)
 @ForgeConfiguration(value = BaseConfigurator::class)
 internal class DdSdkTest {
-
     lateinit var testedBridgeSdk: DdSdkImplementation
 
     @Mock(answer = Answers.RETURNS_DEEP_STUBS)
@@ -126,13 +138,30 @@ internal class DdSdkTest {
     @Mock
     lateinit var mockChoreographer: Choreographer
 
+    @Mock
+    lateinit var mockChoreographerCompat: ChoreographerCompat
+
     @BeforeEach
     fun `set up`() {
+        mockkStatic(Looper::class)
+
+        val looper = mockk<Looper> {
+            every { thread } returns Thread.currentThread()
+        }
+
+        every { Looper.getMainLooper() } returns looper
+
+        System.setProperty("IS_UNIT_TEST", "true")
+
         whenever(mockDatadog.getRumMonitor()) doReturn mockRumMonitor
         whenever(mockRumMonitor._getInternal()) doReturn mockRumInternalProxy
 
         doNothing().whenever(mockChoreographer).postFrameCallback(any())
+        doNothing().whenever(mockChoreographerCompat).postFrameCallback(any())
+
         mockChoreographerInstance(mockChoreographer)
+        mockChoreographerCompatInstance(mockChoreographerCompat)
+
         whenever(mockReactContext.applicationContext) doReturn mockContext
         whenever(mockContext.packageName) doReturn "packageName"
         whenever(
@@ -154,6 +183,7 @@ internal class DdSdkTest {
     @AfterEach
     fun `tear down`() {
         GlobalState.globalAttributes.clear()
+        unmockkAll()
     }
 
     // region initialize / nativeCrashReportEnabled
@@ -1187,7 +1217,7 @@ internal class DdSdkTest {
                     longTaskTrackingStrategy
                         .isInstanceOf(
                             "com.datadog.android.rum.internal.instrumentation." +
-                                "MainLooperLongTaskStrategy"
+                                    "MainLooperLongTaskStrategy"
                         )
                         .hasFieldEqualTo("thresholdMs", threshold.toLong())
                 }
@@ -1561,8 +1591,8 @@ internal class DdSdkTest {
             .hasField("featureConfiguration") {
                 it.hasFieldEqualTo("vitalsMonitorUpdateFrequency", VitalsUpdateFrequency.RARE)
             }
-        argumentCaptor<Choreographer.FrameCallback> {
-            verify(mockChoreographer).postFrameCallback(capture())
+        argumentCaptor<ChoreographerCompat.FrameCallback> {
+            verify(mockChoreographerCompat).postFrameCallback(capture())
             assertThat(firstValue).isInstanceOf(VitalFrameCallback::class.java)
         }
     }
@@ -1572,7 +1602,7 @@ internal class DdSdkTest {
         @Forgery configuration: DdSdkConfiguration
     ) {
         // Given
-        doThrow(IllegalStateException()).whenever(mockChoreographer).postFrameCallback(any())
+        doThrow(IllegalStateException()).whenever(mockChoreographerCompat).postFrameCallback(any())
         val bridgeConfiguration = configuration.copy(
             vitalsUpdateFrequency = "NEVER",
             longTaskThresholdMs = 0.0
@@ -1600,7 +1630,7 @@ internal class DdSdkTest {
             .hasField("featureConfiguration") {
                 it.hasFieldEqualTo("vitalsMonitorUpdateFrequency", VitalsUpdateFrequency.NEVER)
             }
-        verifyNoInteractions(mockChoreographer)
+        verifyNoInteractions(mockChoreographerCompat)
     }
 
     @Test
@@ -1640,8 +1670,8 @@ internal class DdSdkTest {
             .hasField("featureConfiguration") {
                 it.hasFieldEqualTo("vitalsMonitorUpdateFrequency", VitalsUpdateFrequency.AVERAGE)
             }
-        argumentCaptor<Choreographer.FrameCallback> {
-            verify(mockChoreographer).postFrameCallback(capture())
+        argumentCaptor<ChoreographerCompat.FrameCallback> {
+            verify(mockChoreographerCompat).postFrameCallback(capture())
             assertThat(firstValue).isInstanceOf(VitalFrameCallback::class.java)
 
             // When
@@ -1678,8 +1708,8 @@ internal class DdSdkTest {
         testedBridgeSdk.initialize(bridgeConfiguration.toReadableJavaOnlyMap(), mockPromise)
 
         // Then
-        argumentCaptor<Choreographer.FrameCallback> {
-            verify(mockChoreographer).postFrameCallback(capture())
+        argumentCaptor<ChoreographerCompat.FrameCallback> {
+            verify(mockChoreographerCompat).postFrameCallback(capture())
 
             // When
             firstValue.doFrame(timestampNs)
@@ -1715,8 +1745,8 @@ internal class DdSdkTest {
         testedBridgeSdk.initialize(bridgeConfiguration.toReadableJavaOnlyMap(), mockPromise)
 
         // Then
-        argumentCaptor<Choreographer.FrameCallback> {
-            verify(mockChoreographer).postFrameCallback(capture())
+        argumentCaptor<ChoreographerCompat.FrameCallback> {
+            verify(mockChoreographerCompat).postFrameCallback(capture())
 
             // When
             firstValue.doFrame(timestampNs)

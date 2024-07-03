@@ -24,6 +24,11 @@ export function getDatadogConfig(trackingConsent: TrackingConsent) {
     config.sessionSamplingRate = 100
     config.serviceName = "com.datadoghq.reactnative.sample"
     config.verbosity = SdkVerbosity.DEBUG;
+    config.resourceEventMapper = (event) => {
+        console.log(event);
+        console.log(JSON.stringify(event, null, 4));
+        return event
+    }
 
     return config
 }
@@ -35,7 +40,7 @@ export function getDatadogConfig(trackingConsent: TrackingConsent) {
 }
 
 // Legacy SDK Setup
-export function initializeDatadog(trackingConsent: TrackingConsent) {
+export function initializeDatadog() {
 
     const config = new DdSdkReactNativeConfiguration(
         CLIENT_TOKEN,
@@ -44,7 +49,6 @@ export function initializeDatadog(trackingConsent: TrackingConsent) {
         true,
         true,
         true,
-        trackingConsent
     )
     config.nativeCrashReportEnabled = true
     config.sampleRate = 100
